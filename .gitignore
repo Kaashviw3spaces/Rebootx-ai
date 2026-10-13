@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local backend scratch databases and previews
+backend/*.db
+backend/migration-preview.sql
+.env.*
+!.env.example
