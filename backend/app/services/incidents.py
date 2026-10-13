@@ -2,7 +2,8 @@ from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.entities import AuditLog, Incident, Workflow
+from app.models.entities import AuditLog, Incident, Workflow, RecoveryOutbox
+from app.temporal.schemas import recovery_workflow_id
 
 
 def find_duplicate(db, tenant_id, event):
@@ -45,6 +46,10 @@ def receive_failure(db, integration, event):
             tenant_id=integration.tenant_id, incident_id=incident.id,
             actor=f"integration:{integration.id}", event_type="INCIDENT_RECEIVED",
             redacted_details={"status": "RECEIVED", "failure_type": event.error.category},
+        ))
+        db.add(RecoveryOutbox(
+            tenant_id=integration.tenant_id, incident_id=incident.id,
+            temporal_workflow_id=recovery_workflow_id(integration.tenant_id, incident.id),
         ))
         db.commit()
     except IntegrityError:

@@ -224,3 +224,4 @@ backend/*.db
 backend/migration-preview.sql
 .env.*
 !.env.example
+backend/.temporal/

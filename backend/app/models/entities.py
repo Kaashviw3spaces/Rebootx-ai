@@ -69,11 +69,16 @@ class Incident(Base):
     event_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recovery_reason: Mapped[str | None] = mapped_column(String(100))
+    verification_outcome: Mapped[str | None] = mapped_column(String(30))
 
 
 class RecoveryAttempt(Base):
     __tablename__ = "recovery_attempts"
-    __table_args__ = (ForeignKeyConstraint(["tenant_id", "incident_id"], ["incidents.tenant_id", "incidents.id"]),)
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "incident_id"], ["incidents.tenant_id", "incidents.id"]),
+        UniqueConstraint('tenant_id', 'incident_id', 'logical_key', name='uq_recovery_attempt_logical'),
+    )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), index=True)
     incident_id: Mapped[uuid.UUID] = mapped_column(Uuid)
@@ -83,11 +88,16 @@ class RecoveryAttempt(Base):
     external_reference: Mapped[str | None] = mapped_column(String(200))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    logical_key: Mapped[str | None] = mapped_column(String(100))
+    failure_reason: Mapped[str | None] = mapped_column(String(100))
 
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    __table_args__ = (ForeignKeyConstraint(["tenant_id", "incident_id"], ["incidents.tenant_id", "incidents.id"]),)
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "incident_id"], ["incidents.tenant_id", "incidents.id"]),
+        UniqueConstraint('tenant_id', 'incident_id', 'logical_key', name='uq_audit_log_logical'),
+    )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), index=True)
     incident_id: Mapped[uuid.UUID] = mapped_column(Uuid)
@@ -95,3 +105,24 @@ class AuditLog(Base):
     event_type: Mapped[str] = mapped_column(String(100))
     redacted_details: Mapped[dict] = mapped_column(JSON)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    logical_key: Mapped[str | None] = mapped_column(String(100))
+
+
+class RecoveryOutbox(Base):
+    __tablename__ = 'recovery_outbox'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'incident_id'], ['incidents.tenant_id', 'incidents.id']),
+        UniqueConstraint('tenant_id', 'incident_id', name='uq_outbox_incident'),
+        UniqueConstraint('temporal_workflow_id'),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('tenants.id'), index=True)
+    incident_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    temporal_workflow_id: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(100))

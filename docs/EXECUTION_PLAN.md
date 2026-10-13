@@ -2,6 +2,22 @@
 
 **Build window:** October 13–18, 2026 (verify official submission deadline and timezone)
 
+## Checkpoint 2 implementation status (October 13)
+
+- [x] Preserve Checkpoint 1 HMAC ingestion, tenant read authentication, deduplication, and composite tenant constraints.
+- [x] Add a transactional outbox in the incident commit; use deterministic Temporal IDs and retryable, lease-fenced dispatch.
+- [x] Implement `IncidentRecoveryWorkflow` with deterministic mock diagnosis, bounded mock retry/fallback, verification, and escalation.
+- [x] Persist tenant-scoped recovery state, attempts, timestamps, failure codes, verification, and idempotent audit steps.
+- [x] Add tenant-authorized recovery, attempt, and timeline endpoints.
+- [x] Add additive revision `0002`, retaining existing data and revision `0001`.
+- [x] Validate the official SDK and native Windows development server without Docker/WSL.
+- [x] Run real Temporal lifecycle/retry/duplicate-start/replay tests and actual worker-process crash/restart against a running native server.
+- [x] Run SQLite regression/unit tests; run isolated live PostgreSQL tests separately and record final evidence in `backend/IMPLEMENTATION.md`.
+
+Checkpoint 2 accepts a webhook after durable database queueing; Temporal need not be online at that moment. No real notification adapter or Gemma integration is implied by the mock recovery status. The wider end-to-end gates below remain future work.
+
+Checkpoint 3 should add an explicit policy/approval model, a registered sandbox adapter with operation reconciliation and idempotency, and evidence-backed verification before enabling any external effects. Then integrate schema-validated Gemma proposals behind the policy gate. Revalidate unknown-outcome handling, tenant isolation, retry budgets, and worker interruption with real sandbox evidence. Assess durable server hosting and cost explicitly; never assume Temporal Cloud is free. Add operator reconciliation for workflow failures/timeouts and revoked registrations before claiming production resilience.
+
 ## Strategy
 Ship a narrow, end-to-end, **real external n8n failure → authenticated event → Temporal recovery → verified provider acceptance → auditable dashboard** path before adding polish. Treat partner integrations as meaningful enhancements, not blockers to the core flow.
 

@@ -6,9 +6,10 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.core.security import authenticate_reader, authenticate_webhook
-from app.models.entities import Incident
+from app.models.entities import Incident, RecoveryAttempt, AuditLog, RecoveryOutbox
 from app.schemas.events import FailureEvent, IncidentResponse, IngestionResponse
 from app.services.incidents import receive_failure
+from app.schemas.recovery import RecoveryResponse, AttemptResponse, TimelineResponse
 
 router = APIRouter()
 
@@ -50,8 +51,43 @@ async def failure(request: Request, db=Depends(get_db)):
 
 @router.get("/api/v1/incidents/{incident_id}", response_model=IncidentResponse)
 def get_incident(incident_id: UUID, request: Request, db=Depends(get_db)):
+    return authorized_incident(db, request, incident_id)
+
+
+def authorized_incident(db, request, incident_id):
     tenant = authenticate_reader(db, request.headers.get("Authorization"))
     incident = db.scalar(select(Incident).where(Incident.id == incident_id, Incident.tenant_id == tenant.id))
     if incident is None:
         raise HTTPException(404, "Incident not found")
     return incident
+
+
+@router.get('/api/v1/incidents/{incident_id}/recovery', response_model=RecoveryResponse)
+def get_recovery(incident_id: UUID, request: Request, db=Depends(get_db)):
+    incident = authorized_incident(db, request, incident_id)
+    outbox = db.scalar(select(RecoveryOutbox).where(
+        RecoveryOutbox.tenant_id == incident.tenant_id, RecoveryOutbox.incident_id == incident.id))
+    return RecoveryResponse(
+        incident_id=incident.id, status=incident.status,
+        verification_outcome=incident.verification_outcome, escalation_reason=incident.recovery_reason,
+        temporal_workflow_id=outbox.temporal_workflow_id if outbox else None,
+        dispatch_status=('DISPATCHED' if outbox.dispatched_at else 'PENDING') if outbox else 'NOT_QUEUED',
+        dispatch_attempts=outbox.attempt_count if outbox else 0,
+        dispatch_error=outbox.last_error if outbox else None,
+    )
+
+
+@router.get('/api/v1/incidents/{incident_id}/attempts', response_model=list[AttemptResponse])
+def get_attempts(incident_id: UUID, request: Request, db=Depends(get_db)):
+    incident = authorized_incident(db, request, incident_id)
+    return db.scalars(select(RecoveryAttempt).where(
+        RecoveryAttempt.tenant_id == incident.tenant_id, RecoveryAttempt.incident_id == incident.id,
+    ).order_by(RecoveryAttempt.started_at, RecoveryAttempt.id)).all()
+
+
+@router.get('/api/v1/incidents/{incident_id}/timeline', response_model=list[TimelineResponse])
+def get_timeline(incident_id: UUID, request: Request, db=Depends(get_db)):
+    incident = authorized_incident(db, request, incident_id)
+    return db.scalars(select(AuditLog).where(
+        AuditLog.tenant_id == incident.tenant_id, AuditLog.incident_id == incident.id,
+    ).order_by(AuditLog.occurred_at, AuditLog.id)).all()

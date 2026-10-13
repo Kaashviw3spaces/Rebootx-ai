@@ -17,6 +17,7 @@ from app.core.database import make_engine
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--use-development-database', action='store_true')
+    parser.add_argument('--temporal-only', action='store_true', help='Run real Temporal server/restart tests with isolated PostgreSQL data')
     args = parser.parse_args()
     engine = None
     try:
@@ -44,12 +45,16 @@ def main():
             connection.exec_driver_sql('SELECT 1')
         env = os.environ.copy()
         env['TEST_DATABASE_URL'] = url.render_as_string(hide_password=False)
+        selection = []
+        if args.temporal_only:
+            env['RUN_TEMPORAL_INTEGRATION'] = '1'
+            selection = ['tests/test_temporal_integration.py']
         print('Running PostgreSQL suite in randomly named test schemas (direct connection).', flush=True)
         # Avoid reusing pytest directories created under a different Windows
         # sandbox identity. Only this newly allocated temporary directory is removed.
         with tempfile.TemporaryDirectory(prefix='rebootx-postgres-tests-') as temporary:
             result = subprocess.run(
-                [sys.executable, '-m', 'pytest', '-q', '--tb=short', '-p', 'no:cacheprovider',
+                [sys.executable, '-m', 'pytest', '-q', *selection, '--tb=short', '-p', 'no:cacheprovider',
                  '--basetemp', str(Path(temporary) / 'pytest')], env=env,
                 cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
             )

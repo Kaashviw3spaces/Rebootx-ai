@@ -2,6 +2,8 @@
 
 **Version:** 0.1 | **Date:** 2026-10-13
 
+**Implemented through Checkpoint 2:** FastAPI HMAC ingestion, Neon persistence, transactional outbox, Temporal `IncidentRecoveryWorkflow`, deterministic mock diagnosis/actions, and tenant-authorized recovery reads. Gemma, real notification adapters, policies/approvals, and the dashboard below describe the target architecture and are not implemented yet.
+
 ## 1. Architecture at a glance
 
 ```text
@@ -13,7 +15,7 @@ Render-hosted FastAPI Ingestion API ── auth, rate limit, validation, dedup
        │
        ├── PostgreSQL ── tenants, workflows, policies, incidents, audit, secrets refs
        │
-       └── Temporal client ── start RecoveryWorkflow(incident_id)
+       └── Transactional recovery outbox ── dispatcher ── Temporal
                                   │
                                   ▼
                          Temporal worker (Python)
@@ -83,7 +85,7 @@ Content-Type: application/json
 }
 ```
 
-Tenant identity is derived from authenticated token; never from JSON. Resolve `recipient_ref` via a tenant-scoped lookup. Avoid raw personal data in error payloads and LLM prompts. Webhook response is `202 Accepted` after durable incident persistence and workflow start; repeat delivery returns the existing incident ID.
+Tenant identity is derived from authenticated credentials; never from JSON. Resolve `recipient_ref` via a tenant-scoped lookup when that feature is implemented. Avoid raw personal data in error payloads and LLM prompts. In Checkpoint 2, `202 Accepted` follows the atomic incident, audit, and recovery-outbox commit. An independent dispatcher starts Temporal; database commit and workflow start are not atomic. Repeat delivery returns the existing incident ID without creating another outbox row. The deployed endpoint remains `/api/v1/events/failure` with exact-byte HMAC authentication; the bearer example above is illustrative, not the current contract.
 
 ## 5. Recovery state machine
 ```text
@@ -143,9 +145,37 @@ Use Temporal activities for network calls, model inference, and DB operations. K
 - Separate test and production integrations; use synthetic customer data for public demos.
 
 ## 9. Hosting and development
-- **Local:** Docker Compose for Postgres and Temporal dev server; FastAPI and worker processes; React dev server; local/mock Gemma where necessary.
+- **Local Windows:** Neon PostgreSQL, native Temporal CLI development server, and separate FastAPI, outbox dispatcher, and worker processes. Docker and WSL are unnecessary. Start Temporal with `--db-filename` to retain local server state. React and Gemma remain future work at Checkpoint 2.
 - **Public demo:** Render for dashboard/API and suitable worker runtime. Temporal server requires durable infrastructure; verify feasible hosting before committing. If Temporal cannot be deployed publicly within budget, document and show a reproducible local Temporal-backed demo while hosting the dashboard/API publicly—do not imply public recovery is live when it isn't.
 - Database migrations and secret configuration required before enabling external tenants.
 
 ## 10. Verification semantics
 Provider returning `202` means **accepted for processing**, not necessarily delivered to recipient. UI must say `ACCEPTED_BY_PROVIDER` unless delivery receipt is available. A `RECOVERED` incident means the configured business-operation completion criterion is met (e.g. accepted by provider); explicitly label this criterion.
+
+## 11. Checkpoint 2 implemented orchestration
+
+```text
+HMAC webhook -> one PostgreSQL transaction:
+                  incident + INCIDENT_RECEIVED audit + recovery_outbox
+               -> 202 (durably queued)
+
+Independent dispatcher -> claim with lease -> commit claim
+                       -> start IncidentRecoveryWorkflow with tenant/incident ID
+                       -> lease-fenced acknowledgement or delayed retry
+
+Temporal worker -> deterministic workflow -> transactional activities:
+                  VALIDATING -> DIAGNOSING -> PLANNED -> EXECUTING
+                  -> VERIFYING -> RECOVERED / NEEDS_ATTENTION
+```
+
+`recovery_outbox` is unique per `(tenant_id, incident_id)`, references the same-tenant incident, and stores a deterministic Temporal ID, timestamps, lease token, dispatch count, and fixed error code. It contains no credentials or raw webhook payload. PostgreSQL claims use `FOR UPDATE SKIP LOCKED`. No database transaction spans a Temporal RPC. A crash after start but before acknowledgement is safe: the row becomes reclaimable, and `REJECT_DUPLICATE` / already-started handling converges on the existing execution. Dispatch retries back off to at most 60 seconds. Stop/restart the dispatcher freely; do not change namespaces during pending dispatch.
+
+Revision `0002` adds the outbox, incident recovery/verification fields, and nullable logical keys with same-tenant uniqueness on `recovery_attempts` and `audit_logs`. It preserves old rows and does not automatically launch historical incidents. PostgreSQL performs additive alterations in place; SQLite batch alteration is used only for compatibility with disposable local test databases. The live database is never downgraded or truncated.
+
+Activity writes lock the same-tenant incident row and verify its registered workflow/integration and enabled flags. Unique logical keys plus transactional audit results make activity redelivery idempotent, including a lost acknowledgement after commit. Old steps return their original result without overwriting later state. SQLite reserves a write transaction because it has no row locks. Revoked scope fails closed. Ingestion still rejects caller-supplied tenant IDs; the existing hashed tenant read credential authorizes all incident/attempt/timeline endpoints.
+
+Only fixed mock fixtures classify network/rate-limit/authentication/payload/unknown failures. Recoverable fixtures allow one mock retry, then one mock fallback, followed by verification. Rate-limit delay uses a deterministic two-second Temporal timer. Unsafe/unknown fixtures escalate without retry. No activity calls an external automation, provider, AI model, or customer-system API. `MOCK_VERIFIED` is synthetic evidence, never provider delivery. Retry delivery limits (three), activity timeouts (30 seconds/two minutes), and workflow deadline (20 minutes) are explicit.
+
+Native Windows CLI 1.9.1 / server 1.32.0 worked through SDK 1.34.0 `WorkflowEnvironment.start_local()` with an existing executable. Real test-server execution, activity retry after lost acknowledgement, duplicate start, history replay, and actual worker-process crash/restart are covered separately from mocked tests. Worker crash/restart was tested with both SQLite and isolated live Neon application persistence. The tested server remained running during worker restart; server-restart durability and production hosting are not claimed. Remote TLS/API-key configuration is supported but has not been validated against a configured remote server. Continuing database outages, workflow deadline expiry, and revoked scope require operator reconciliation.
+
+See `backend/README.md` for Docker-free installation, migration, worker/dispatcher startup, environment settings, and test commands.
