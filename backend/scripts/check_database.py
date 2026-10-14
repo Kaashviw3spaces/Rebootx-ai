@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     migration = parser.add_mutually_exclusive_group()
     migration.add_argument('--migrate-empty-dev', action='store_true')
-    migration.add_argument('--upgrade-dev', action='store_true', help='Apply the reviewed additive 0001 -> 0002 upgrade')
+    migration.add_argument('--upgrade-dev', action='store_true', help='Apply reviewed additive upgrades to 0003')
     args = parser.parse_args()
     engine = None
     try:
@@ -54,16 +54,18 @@ def main():
             print('Public tables:', ', '.join(sorted(tables)) or '(none)')
             print('Migration revision:', revision or '(none)')
             if args.upgrade_dev and revision != head:
-                if settings.app_env != 'development' or revision != '0001' or head != '0002':
-                    raise DatabaseCheckError('Upgrade refused: requires development database at 0001 and head 0002.')
+                if settings.app_env != 'development' or revision not in {'0001', '0002'} or head != '0003':
+                    raise DatabaseCheckError('Upgrade refused: requires development database at 0001/0002 and head 0003.')
                 if connection.scalar(text('SELECT current_schema()')) != 'public':
                     raise DatabaseCheckError('Upgrade refused: default schema must be public.')
                 baseline = {'tenants', 'integrations', 'workflows', 'incidents', 'audit_logs', 'recovery_attempts'}
-                if not baseline <= tables or 'recovery_outbox' in tables:
+                if revision == '0002':
+                    baseline.add('recovery_outbox')
+                if not baseline <= tables or 'incident_diagnoses' in tables or (revision == '0001' and 'recovery_outbox' in tables):
                     raise DatabaseCheckError('Upgrade refused: unexpected baseline tables; review manually.')
                 config.attributes['connection'] = connection
                 command.upgrade(config, 'head')
-                print('Migration: applied reviewed additive 0001 -> 0002 upgrade')
+                print('Migration: applied reviewed additive upgrade to 0003')
             if args.migrate_empty_dev and revision != head:
                 if settings.app_env != 'development':
                     raise DatabaseCheckError('Migration refused: APP_ENV must be development.')
@@ -80,7 +82,7 @@ def main():
                 command.upgrade(config, 'head')
                 print('Migration: applied existing upgrade to head')
             if args.migrate_empty_dev or args.upgrade_dev or revision == head:
-                expected = {'tenants', 'integrations', 'workflows', 'incidents', 'audit_logs', 'recovery_attempts', 'recovery_outbox', 'alembic_version'}
+                expected = {'tenants', 'integrations', 'workflows', 'incidents', 'audit_logs', 'recovery_attempts', 'recovery_outbox', 'incident_diagnoses', 'alembic_version'}
                 tables = set(inspect(connection).get_table_names(schema='public'))
                 if not expected <= tables:
                     raise DatabaseCheckError('Expected application tables are missing.')

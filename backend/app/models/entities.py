@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, JSON, String, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, JSON, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -126,3 +126,41 @@ class RecoveryOutbox(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(100))
+
+
+class IncidentDiagnosis(Base):
+    __tablename__ = 'incident_diagnoses'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'incident_id'], ['incidents.tenant_id', 'incidents.id']),
+        UniqueConstraint('tenant_id', 'incident_id', name='uq_diagnosis_incident'),
+        CheckConstraint("status IN ('MOCK','SUCCEEDED','POLICY_REJECTED','FALLBACK','FAILED')", name='ck_diagnosis_status'),
+        CheckConstraint('confidence >= 0 AND confidence <= 1', name='ck_diagnosis_confidence'),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('tenants.id'), index=True)
+    incident_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    status: Mapped[str] = mapped_column(String(30))
+    failure_category: Mapped[str] = mapped_column(String(50))
+    root_cause: Mapped[str] = mapped_column(String(500))
+    explanation: Mapped[str] = mapped_column(String(1000))
+    recommended_action: Mapped[str] = mapped_column(String(50))
+    confidence: Mapped[float] = mapped_column(Float)
+    requires_human_approval: Mapped[bool] = mapped_column(Boolean)
+    alternative_actions: Mapped[list] = mapped_column(JSON)
+    provider: Mapped[str] = mapped_column(String(20))
+    model_id: Mapped[str] = mapped_column(String(100))
+    requested_model_id: Mapped[str] = mapped_column(String(100))
+    diagnosed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    fallback_reason: Mapped[str | None] = mapped_column(String(100))
+    policy_reason: Mapped[str] = mapped_column(String(100))
+    recovery_category: Mapped[str] = mapped_column(String(100))
+    allow_fallback: Mapped[bool] = mapped_column(Boolean)
+
+    @property
+    def source(self) -> str:
+        # Also label historical fallback rows correctly without a backfill/migration.
+        if self.status in {'MOCK', 'FALLBACK', 'FAILED'} or self.model_id == 'mock-diagnosis-v1':
+            return 'mock'
+        if self.model_id == 'deterministic-diagnosis-v1':
+            return 'deterministic'
+        return self.provider if self.provider in {'gemma', 'mock', 'deterministic'} else 'unknown'

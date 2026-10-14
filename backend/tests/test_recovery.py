@@ -47,6 +47,7 @@ def test_mock_lifecycle_matrix_with_sdk_activity_environment(context, monkeypatc
 
     monkeypatch.setattr('app.temporal.workflows.workflow.execute_activity', execute)
     monkeypatch.setattr('app.temporal.workflows.workflow.sleep', sleep)
+    monkeypatch.setattr('app.temporal.workflows.workflow.patched', lambda _: True)
     cases = [
         ('NETWORK_RETRY_SUCCESS', 'RECOVERED', ['MOCK_RETRY'], None),
         ('NETWORK_FALLBACK_SUCCESS', 'RECOVERED', ['MOCK_RETRY', 'MOCK_FALLBACK'], None),

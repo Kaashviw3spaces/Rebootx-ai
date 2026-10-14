@@ -16,7 +16,23 @@
 
 Checkpoint 2 accepts a webhook after durable database queueing; Temporal need not be online at that moment. No real notification adapter or Gemma integration is implied by the mock recovery status. The wider end-to-end gates below remain future work.
 
-Checkpoint 3 should add an explicit policy/approval model, a registered sandbox adapter with operation reconciliation and idempotency, and evidence-backed verification before enabling any external effects. Then integrate schema-validated Gemma proposals behind the policy gate. Revalidate unknown-outcome handling, tenant isolation, retry budgets, and worker interruption with real sandbox evidence. Assess durable server hosting and cost explicitly; never assume Temporal Cloud is free. Add operator reconciliation for workflow failures/timeouts and revoked registrations before claiming production resilience.
+## Checkpoint 3 implementation status (October 13)
+
+October 14 latency routing: deterministic structured HTTP 429/401/503 and known connection/schema-error paths avoid model calls in Gemma mode; ambiguous cases still call Gemma. Full schema/policy, approvals, source provenance, tenant isolation, committed-result idempotency and mock fallback are retained. Local benchmark medians are 0.0128–0.0190 ms (compute only), prompt size is 10.5% smaller, and hosted full-schema validation remains a separate open gate. No hosted latency improvement or end-to-end production success is claimed.
+
+October 14 output-contract correction: added sanitized validation/envelope failure classification, a schema-derived seven-field prompt/example, bounded 60-second AI configuration, and a replay-versioned diagnosis-only 75/240-second activity budget. Existing action budgets, policy/fallback, tenant isolation and workflow deadline remain intact. One real production request returned after 23.383 seconds but failed the pre-parser envelope guard; precise retained text details are unavailable. The guard has now been separately classified/tested offline. The successful full-schema live-inference gate below remains open; do not retry automatically or claim completion from mocked/native tests.
+
+- [x] Add official Google Gen AI SDK provider and verify the configured key's Gemma model catalog.
+- [x] Add strict structured diagnosis validation and an independent deterministic policy gate.
+- [x] Run inference inside the existing activity, retaining deterministic workflow commands and mock-only effects.
+- [x] Preserve legacy deterministic fallback and provide explicit fallback-disabled escalation.
+- [x] Add tenant-scoped diagnosis persistence via additive `0003`, leaving `0001`/`0002` unchanged.
+- [x] Extend the authorized recovery response and audit evidence with diagnosis/policy metadata.
+- [x] Test invalid output, provider failures, low confidence, injection/redaction, tenant isolation, persistence, native Temporal retry/replay, and existing worker restart.
+- [x] Verify successful full-schema real Gemma diagnosis: one subsequent authorized ambiguous synthetic request returned in 21.622 seconds (`STOP`, 347 characters), parsed and validated all seven fields, and correctly required human approval through deterministic policy. No real action or live database operation occurred.
+- [x] Preflight/ownership/TLS/drift verification, additive `0002 -> 0003` upgrade and live Neon PostgreSQL validation completed: 157 tests passed in isolated schemas; existing empty public data remained unchanged; no test schemas remain. No live Gemma or real recovery actions ran during this validation.
+
+Checkpoint 3 defaults to mock mode; explicit `AI_PROVIDER=gemma` enables advisory diagnosis only. Real adapters, approval execution, operation reconciliation, evidence-backed external verification, and operator repair remain future work. Revalidate unknown completion and actual worker interruption with sandbox evidence before any external effects. Assess durable hosting/cost explicitly before claiming production resilience. The wider end-to-end schedule below describes future gates, not completed Checkpoint 3 capabilities.
 
 ## Strategy
 Ship a narrow, end-to-end, **real external n8n failure → authenticated event → Temporal recovery → verified provider acceptance → auditable dashboard** path before adding polish. Treat partner integrations as meaningful enhancements, not blockers to the core flow.

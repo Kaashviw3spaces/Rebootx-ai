@@ -39,6 +39,8 @@ def receive_failure(db, integration, event):
         error_details={"category": event.error.category, "message": "[REDACTED]"},
         event_timestamp=event.timestamp, status="RECEIVED",
     )
+    if event.error.http_status is not None:
+        incident.error_details['http_status'] = event.error.http_status
     try:
         db.add(incident)
         db.flush()

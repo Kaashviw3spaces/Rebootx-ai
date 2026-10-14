@@ -4,6 +4,25 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
+class DiagnosisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    status: str
+    failure_category: str
+    root_cause: str
+    explanation: str
+    recommended_action: str
+    confidence: float
+    requires_human_approval: bool
+    alternative_actions: list[str]
+    provider: str
+    source: str
+    model_id: str
+    requested_model_id: str
+    diagnosed_at: datetime
+    fallback_reason: str | None
+    policy_reason: str
+
+
 class RecoveryResponse(BaseModel):
     incident_id: UUID
     status: str
@@ -14,6 +33,7 @@ class RecoveryResponse(BaseModel):
     dispatch_status: str
     dispatch_attempts: int
     dispatch_error: str | None
+    diagnosis: DiagnosisResponse | None = None
 
 
 class AttemptResponse(BaseModel):

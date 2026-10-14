@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.core.security import authenticate_reader, authenticate_webhook
-from app.models.entities import Incident, RecoveryAttempt, AuditLog, RecoveryOutbox
+from app.models.entities import Incident, IncidentDiagnosis, RecoveryAttempt, AuditLog, RecoveryOutbox
 from app.schemas.events import FailureEvent, IncidentResponse, IngestionResponse
 from app.services.incidents import receive_failure
 from app.schemas.recovery import RecoveryResponse, AttemptResponse, TimelineResponse
@@ -67,6 +67,8 @@ def get_recovery(incident_id: UUID, request: Request, db=Depends(get_db)):
     incident = authorized_incident(db, request, incident_id)
     outbox = db.scalar(select(RecoveryOutbox).where(
         RecoveryOutbox.tenant_id == incident.tenant_id, RecoveryOutbox.incident_id == incident.id))
+    diagnosis = db.scalar(select(IncidentDiagnosis).where(
+        IncidentDiagnosis.tenant_id == incident.tenant_id, IncidentDiagnosis.incident_id == incident.id))
     return RecoveryResponse(
         incident_id=incident.id, status=incident.status,
         verification_outcome=incident.verification_outcome, escalation_reason=incident.recovery_reason,
@@ -74,6 +76,7 @@ def get_recovery(incident_id: UUID, request: Request, db=Depends(get_db)):
         dispatch_status=('DISPATCHED' if outbox.dispatched_at else 'PENDING') if outbox else 'NOT_QUEUED',
         dispatch_attempts=outbox.attempt_count if outbox else 0,
         dispatch_error=outbox.last_error if outbox else None,
+        diagnosis=diagnosis,
     )
 
 

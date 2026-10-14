@@ -13,10 +13,15 @@ class IncidentRecoveryWorkflow:
     @workflow.run
     async def run(self, data: RecoveryInput) -> StepResult:
         async def step(operation, reason=''):
+            start_seconds, schedule_seconds = 30, 120
+            if operation == 'diagnose' and workflow.patched('diagnosis-timeouts-v1'):
+                # AI configuration is bounded at <=60s; history records the versioned budget.
+                # 3*75s plus retry/queue headroom fits the unchanged 20-minute workflow deadline.
+                start_seconds, schedule_seconds = 75, 240
             return await workflow.execute_activity(
                 'recovery_step', StepRequest(data, operation, reason), result_type=StepResult,
-                start_to_close_timeout=timedelta(seconds=30),
-                schedule_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=timedelta(seconds=start_seconds),
+                schedule_to_close_timeout=timedelta(seconds=schedule_seconds),
                 retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1),
                                          maximum_interval=timedelta(seconds=5), maximum_attempts=3),
             )

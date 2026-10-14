@@ -18,7 +18,7 @@ async def run_worker():
     client = await connect_temporal(settings)
     engine = make_engine(settings.database_url.get_secret_value())
     try:
-        activities = RecoveryActivities(session_factory(engine))
+        activities = RecoveryActivities(session_factory(engine), settings=settings)
         with ThreadPoolExecutor(max_workers=8) as executor:
             worker = Worker(client, task_queue=settings.temporal_task_queue,
                             workflows=[IncidentRecoveryWorkflow], activities=[activities.step],

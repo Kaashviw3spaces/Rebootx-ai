@@ -1,6 +1,95 @@
-# Checkpoint 2 backend: durable Temporal mock recovery
+# Checkpoint 3 backend: advisory Gemma diagnosis and durable mock recovery
 
-Python 3.11+; FastAPI, SQLAlchemy 2.x, PostgreSQL, Pydantic v2, Alembic, pytest. This checkpoint durably queues incidents for Temporal and runs mock diagnosis/retry/fallback/verification. It never sends notifications or invokes real automation adapters.
+Python 3.11+; FastAPI, SQLAlchemy 2.x, PostgreSQL, Pydantic v2, Alembic, pytest, Google Gen AI SDK. Incidents are durably queued for Temporal. Diagnosis can use hosted Gemma; execution, fallback actions, and verification remain mock-only. It never sends notifications or invokes real automation adapters.
+
+## Checkpoint 3: Gemma diagnosis
+
+### Current Neon development validation (October 14)
+
+Ownership/TLS/configuration and the Checkpoint 2 schema baseline were verified before applying only additive migration **0003** to the existing development database (**0002 -> 0003**). Final schema/model/constraint checks passed. PostgreSQL regression/persistence tests: **157 passed, 5 skipped** in isolated schemas; SQLite: **157 passed, 5 skipped**; native Temporal: **5 passed** separately with local SQLite and mocked model responses. Deterministic/Gemma/mock provenance, tenant isolation and linked recovery/audit/outbox records were verified. No live Gemma call was made during database validation.
+
+All seven existing application tables were empty, and their counts/content hashes remained unchanged. Nonempty synthetic historical preservation was tested in isolated PostgreSQL schemas. Final public diagnosis count is zero; no test schemas remain. Actual `.env` and `AI_PROVIDER=mock` were unchanged. No historical migrations, existing user records, billing settings, commits or pushes were changed. See `IMPLEMENTATION.md` for evidence and limitations. Older database-unverified statements below describe prior sessions and are superseded by this development validation.
+
+### Current live verification (October 14)
+
+One actual production request for ambiguous synthetic HTTP 200/unknown-failure evidence bypassed the deterministic classifier and returned from `gemma-4-26b-a4b-it` in **21.622 seconds**. One candidate finished with `STOP`; its **347-character** response parsed as JSON and validated all seven required fields without repair. Gemma recommended `UNKNOWN_ERROR` / `ESCALATE` at confidence `0.1`. The deterministic policy required human approval, safely denying recovery (`AI_HUMAN_APPROVAL_REQUIRED`). Validating that denial satisfies the diagnosis/policy gate; it does not imply an external recovery succeeded.
+
+The request used the existing production prompt, API `v1beta`, 60-second timeout, 1,024 output-token budget, default thinking and no SDK retries. No code fix or second request was needed. Sanitized response metadata is in ignored `.temporal/gemma-full-schema-verification.json`; no raw response or key is included. Successful full-schema inference is now verified separately from the prior mocked tests/native Temporal tests. Live PostgreSQL deployment remains unverified and no Neon migration was run. Historical failed probes described below do not represent the current live-schema gate status; one successful request is not a reliability or latency guarantee.
+
+### Latency routing optimization (October 14)
+
+With `AI_PROVIDER=gemma`, `AI_FAST_PATH_ENABLED=true` (default) handles structured HTTP 429, HTTP 401, HTTP 503, `CONNECTION_TIMEOUT`/`CONNECT_TIMEOUT`, and `SCHEMA_VALIDATION_ERROR`/`INVALID_PAYLOAD` without an AI request. Authentication/validation denials take precedence over retryable HTTP evidence and require human review. Conflicting connection evidence (such as HTTP 200 plus a timeout code), generic network errors, generic timeouts and unknown failures route to Gemma. No raw error-text matching is used. These rules report only the category supported by structured evidence, not an invented underlying root cause. Their confidence is a fixed heuristic for classification, never authorization or a calibrated probability.
+
+Fast-path diagnoses pass the unchanged seven-field Pydantic schema and the same deterministic safety policy. Low confidence thresholds/human-review gates still block actions. Explicit mock mode preserves the original mock fixtures and never calls Gemma. Disable the fast path explicitly for controlled hosted-only validation; it is not silently bypassed by routine requests.
+
+Actual source is persisted in the existing `provider` column (`deterministic`, `gemma`, `mock`) and exposed as `diagnosis.source` and audit metadata, without a migration. Deterministic outputs use `deterministic-diagnosis-v1`; hosted outputs use the selected Gemma ID; fallback/failed synthetic outputs use `mock-diagnosis-v1`. `requested_model_id` records the configured model and does not imply it was called. Historical mock/fallback/failed records are exposed as `source=mock` without data backfill. No deterministic result is labeled as a Gemma response.
+
+The synthetic production prompt shrank from **2,439 to 2,183 characters (10.5%)**, including system instructions. It retains the exact schema and a compact example, while omitting duplicate status/code fields, timestamps and empty attempt history. Meaningful prior outcomes and allowlisted metadata remain. The shortened prompt requests a phrase/sentence for cause/explanation but does not truncate or weaken schema validation.
+
+`AI_MAX_OUTPUT_TOKENS=1024` defaults to a bounded budget configurable from 512–2048; concise full JSON should fit, but token-exhausted/truncated output remains rejected. `AI_THINKING_LEVEL=default` omits explicit thinking configuration. Optional `minimal` and `high` match [Google's hosted Gemma 4 controls](https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api); no Gemini-only thinking budget or JSON mode is assumed. Earlier probes did not prove a latency improvement from these controls, so the default was not changed. Existing request/activity/workflow timeout hierarchy and SDK retry limits remain intact.
+
+Run `.venv/Scripts/python -B -m scripts.benchmark_diagnosis` for a network-free benchmark. Each case uses 100 warm-up iterations and 2,000 measured samples of deterministic classification + output Pydantic validation + policy only. The recorded medians were **0.0128–0.0190 ms**, with p95 **0.0170–0.0294 ms**. Input construction, database, Temporal and network time are excluded. This is not hosted Gemma latency or an endpoint latency guarantee. No new hosted inference benchmark was performed; the earlier full-schema live gate remains open. See implementation report for per-case results and final test counts.
+
+### Output contract and timeout correction (October 14)
+
+The production schema requires exactly seven fields: `failure_category` (one of `NETWORK_ERROR`, `RATE_LIMIT`, `AUTHENTICATION_ERROR`, `INVALID_PAYLOAD`, `TIMEOUT`, `SERVICE_UNAVAILABLE`, `UNKNOWN_ERROR`), `root_cause` (string, 1–500 characters), `explanation` (string, 1–1000 characters), `recommended_action` (one of `RETRY_WITH_BACKOFF`, `WAIT_AND_RETRY`, `USE_APPROVED_FALLBACK`, `ESCALATE`), `confidence` (finite number, 0–1), `requires_human_approval` (JSON boolean), and `alternative_actions` (array of at most four allowed actions). Extra fields, unsafe prose and incorrect types are rejected. The prompt derives constraints/enums/required fields from the unchanged Pydantic schema, omits cosmetic schema titles, and includes one explicitly synthetic shape example. It forbids Markdown and prose outside a single JSON object; missing fields are never filled or inferred.
+
+`AI_INVALID_OUTPUT` remains the public/fallback code. Internal `AI_OUTPUT_*` codes distinguish malformed JSON, formatting, missing fields, wrong types, enums, confidence, extra fields, duplicate keys, non-object JSON, unsafe prose, length constraints, missing/empty response text and token exhaustion. Only recognized schema field names are retained; unexpected key names, values, provider messages and raw responses are excluded. Details persist in the existing diagnosis result audit; no new migration is needed. Invalid output follows the existing fallback/escalation policy.
+
+AI request timeout defaults to 60 seconds and is configurable from 1–60 seconds. New diagnosis activities have 75-second start-to-close and 240-second schedule-to-close budgets (three delivery attempts plus queue/retry headroom). Other activities retain 30 seconds / 120 seconds; workflow execution/run limits remain 20 minutes. Temporal patch `diagnosis-timeouts-v1` preserves old histories' diagnosis budget during replay. The provider also caps its request against the actual activity budget minus 10 seconds, retaining headroom for legacy 30-second activities. SDK retries stay disabled. Optional explicit thinking control is omitted, matching the earlier probe that returned a response; no unsupported JSON MIME/schema API feature is enabled. This omission does not prove that thinking control caused the prior HTTP 500.
+
+A longer timeout permits longer waits; it does not ensure provider success or schema fidelity. Pre-commit Temporal retries can repeat inference and consume free-tier quota. The October 14 live probe made exactly one request using the actual production prompt: response received in **23.383 seconds**, rejected by the provider text-presence/size guard before JSON validation, with safe fallback and no recovery actions. That guard still had a coarse code; afterward, missing/empty/oversized/token-limited envelope failures were separately classified and tested offline. The response was not retained, so its precise envelope branch cannot be reconstructed; no second live call was made. Full-schema inference remains unverified. The earlier full-response rejection likewise cannot be classified retrospectively.
+
+See `IMPLEMENTATION.md` for final test results. `.env` and `AI_PROVIDER=mock` were not changed. Live PostgreSQL, remote hosting and production resilience are not claimed.
+
+The official `google-genai` SDK uses the Google Generative Language API, explicitly selecting Gemma rather than Gemini. On October 13, 2026, model listing with the configured key returned `models/gemma-4-26b-a4b-it` and `models/gemma-4-31b-it`. The smaller `gemma-4-26b-a4b-it` is the default model. See [hosted Gemma documentation](https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api) and [pricing](https://ai.google.dev/gemini-api/docs/pricing). Listing verifies catalog access, not successful generation. Two bounded synthetic generation requests failed; the diagnostic retry confirmed HTTP 500. Real inference is **not validated**. No Gemini substitution, billing upgrade, GPU, Docker, or WSL is used.
+
+Default `AI_PROVIDER=mock` preserves deterministic behavior and avoids accidental inference when a key is present. To opt in, configure these privately in the existing `.env` or worker environment, retaining all existing values:
+
+```dotenv
+AI_PROVIDER=gemma
+AI_MODEL=gemma-4-26b-a4b-it
+# GEMINI_API_KEY is the existing private key, never a value copied from docs.
+AI_TIMEOUT_SECONDS=60
+AI_FALLBACK_ENABLED=true
+AI_MIN_CONFIDENCE=0.75
+```
+
+Only the two verified Gemma identifiers are accepted. SDK retries are disabled; request timeout follows the configured 1–60-second limit and actual activity headroom described above. Temporal retains three delivery attempts. Inference may repeat after a crash before commit or during concurrent deliveries; a committed diagnosis audit prevents another call on redelivery. Incident locks and a unique diagnosis key ensure one persisted result and idempotent mock effects. No exactly-once AI request or production latency guarantee is claimed.
+
+The existing `recovery_step` activity performs diagnosis. Workflow business flow, identifier-only Temporal payloads, outbox behavior, deterministic IDs, and mock adapter remain intact; diagnosis timeout commands use the replay-safe patch described above. The activity reads scoped evidence, closes the read transaction, calls the provider, validates JSON/policy, then rechecks enabled tenant/workflow/integration scope inside the write transaction. Diagnosis, policy, state transition, and result audit commit atomically. Temporal history carries only fixed recovery codes, not prompts, model prose, or keys.
+
+Input is deliberately lossy: raw webhook messages remain discarded and stored as `[REDACTED]`. Gemma receives only allowlisted failure codes, optional numeric `error.http_status` (integer 100–599), timestamp, allowlisted integration/workflow kinds, and bounded mock-attempt outcome codes. It receives no tenant IDs, external workflow names, execution IDs, raw customer context, URLs, or secrets. Missing evidence cannot be reconstructed. The prompt treats evidence as untrusted and forbids invented facts, tools, shell commands, and secret disclosure.
+
+Pydantic accepts seven failure categories and four advisory actions. Extra/missing fields, duplicate JSON keys, markdown wrappers, non-finite/out-of-range confidence, incorrect types, excessive text, and suspicious prose are rejected. The key is checked against returned text; raw responses and provider/validation exception details are never persisted or logged. Prose filters are defense in depth, not a universal sensitive-data detector; allowlisted inputs are the primary privacy control. API clients must render returned prose as untrusted text.
+
+Policy independently checks evidence, category, confidence threshold, and human-review flags. Authentication/payload failures, unknown evidence, low confidence, or approval requirements escalate. Confidence alone grants no permission. Retry/backoff and a registered mock fallback are the only executable behaviors; fallback requires policy permission. A `USE_APPROVED_FALLBACK` recommendation produces a failed synthetic primary attempt then the permitted mock fallback using the existing workflow. There is no approval execution endpoint or real external action.
+
+Provider timeout/authentication/rate-limit/unavailability and invalid output use fixed codes. With fallback enabled, original mock fixtures preserve Checkpoint 2 behavior and diagnosis status is `FALLBACK`; with fallback disabled, status is `FAILED` and recovery escalates. Valid but unsafe/low-confidence outputs are `POLICY_REJECTED` and escalate without silently replacing the recommendation. Explicit mock mode is labeled `MOCK`.
+
+Revision `0003` adds `incident_diagnoses` with same-tenant foreign keys, a unique tenant/incident pair, status/confidence constraints, diagnosis fields, provider/requested and actual model IDs, timestamp, fallback reason, and policy result. Revisions `0001`/`0002` and historical records are unchanged; there is no backfill. Review/apply `0003` separately before deploying against a persistent database. **No live Neon migration was executed during Checkpoint 3.** The optional development migration command understands additive upgrades to `0003` and retains development/public-schema/baseline guards.
+
+`GET /api/v1/incidents/{incident_id}/recovery` includes a nullable `diagnosis` object: status, category, root cause, explanation, recommendation, confidence, human-review flag, alternatives, provider, actual/requested model, timestamp, fallback reason, and policy reason. `null` means no diagnosis record, including historical incidents. The response `status` remains the recovery outcome; `mode=mock-only` describes execution. Existing bearer authorization and 401/404 behavior apply. Timeline entries include fixed diagnosis/model/policy/fallback codes, never prompts or raw responses.
+
+Routine tests mock model transport and never call live AI. Run SQLite tests from `backend/` in a separate test terminal:
+
+```powershell
+Remove-Item Env:TEST_DATABASE_URL -ErrorAction SilentlyContinue
+$env:DATABASE_URL = 'sqlite:///:memory:'
+$env:AI_PROVIDER = 'mock'
+$env:AI_MODEL = 'gemma-4-26b-a4b-it'
+$env:GEMINI_API_KEY = ''
+$env:TEMPORAL_API_KEY = ''
+$env:TEMPORAL_TLS_ENABLED = 'false'
+$env:RUN_TEMPORAL_INTEGRATION = '0'
+.venv/Scripts/python -B -m pytest -q -p no:cacheprovider --basetemp ".temporal/unit-$([guid]::NewGuid().ToString('N'))"
+# Separate native server run: Gemma transport remains mocked.
+$env:RUN_TEMPORAL_INTEGRATION = '1'
+$env:TEMPORAL_CLI_PATH = (Resolve-Path .temporal/cli/temporal.exe).Path
+.venv/Scripts/python -B -m pytest -q tests/test_temporal_integration.py tests/test_ai_temporal.py -p no:cacheprovider --basetemp ".temporal/native-$([guid]::NewGuid().ToString('N'))"
+```
+
+SQLite migration tests use fresh disposable databases. Native tests verify actual Temporal execution/replay/activity redelivery/worker restart with mocked diagnosis responses. They do not prove real Gemma inference or live PostgreSQL behavior. See `IMPLEMENTATION.md` for results. The Checkpoint 2 descriptions below document the inherited behavior; this section describes the diagnosis extension.
 
 ## Docker-free setup with Neon (PowerShell)
 
@@ -33,9 +122,9 @@ Check live connectivity, then initialize only an empty development database:
 .venv/Scripts/python -m scripts.check_database --migrate-empty-dev
 ```
 
-The check runs real `SELECT 1`, verifies client-side TLS, and reports public tables and the Alembic revision without printing the URL. Neon terminates TLS at its proxy, so `pg_stat_ssl` does not report the client TLS connection. The migration option requires `APP_ENV=development`, the `public` default schema, and no existing user relations before applying revisions `0001` and `0002` in a transaction. If already at head, it checks tables and model drift. It refuses an unversioned or partially migrated database with existing objects: review those manually; never reset, downgrade, or delete existing application data to force initialization. This checkpoint's upgrade creates tables, indexes, and constraints without deleting data. Its downgrade deletes tables and is used only inside disposable test schemas.
+The check runs real `SELECT 1`, verifies client-side TLS, and reports public tables and the Alembic revision without printing the URL. Neon terminates TLS at its proxy, so `pg_stat_ssl` does not report the client TLS connection. The empty-database migration option requires `APP_ENV=development`, the `public` default schema, and no existing user relations before applying revisions `0001` through `0003` in a transaction. If already at head, it checks tables and model drift. It refuses an unversioned or partially migrated database with existing objects: review those manually; never reset, downgrade, or delete application data to force initialization. These upgrades create tables, indexes, and constraints without deleting data. Downgrades are used only inside disposable test databases. No live migration was run during Checkpoint 3.
 
-Expected tables: `tenants`, `integrations`, `workflows`, `incidents`, `audit_logs`, `recovery_attempts`, `recovery_outbox`, plus Alembic's `alembic_version`. No demo tenants or incidents are inserted by the connectivity/migration check.
+Expected tables: `tenants`, `integrations`, `workflows`, `incidents`, `audit_logs`, `recovery_attempts`, `recovery_outbox`, `incident_diagnoses`, plus Alembic's `alembic_version`. No demo tenants or incidents are inserted by the connectivity/migration check.
 
 If connectivity fails, confirm the selected branch and role, URL scheme, SSL options, and outbound TCP access to port 5432. Windows socket error 10013 indicates blocked network access; permit the Python process/network connection and retry. Generic driver error details are suppressed because they may contain secrets.
 
@@ -253,4 +342,4 @@ Worker restart durability was validated against a live native development server
 
 ## Scope reconciliation
 
-The implemented backend stays in `backend/`. Its `/api/v1` HMAC webhook and separate hashed tenant read token remain authoritative; the planning documents' illustrative `/v1` bearer webhook is not the deployed contract. `202` means the incident and durable outbox event committed, not that a Temporal worker has already started. Request-supplied tenant IDs and arbitrary context remain forbidden. This checkpoint implements Temporal with deterministic mock diagnosis and mock actions. Gemma, real notification adapters, human approval execution, users/roles, operation reconciliation, frontend, and n8n templates remain future work.
+The implemented backend stays in `backend/`. Its `/api/v1` HMAC webhook and separate hashed tenant read token remain authoritative; the planning documents' illustrative `/v1` bearer webhook is not the deployed contract. `202` means the incident and durable outbox event committed, not that a Temporal worker has already started. Request-supplied tenant IDs and arbitrary context remain forbidden. Checkpoint 3 adds configurable advisory Gemma diagnosis and deterministic policy to the existing Temporal mock actions. Successful live inference remains blocked by the observed provider failure. Real notification adapters, human approval execution, users/roles, operation reconciliation, frontend, and n8n templates remain future work.

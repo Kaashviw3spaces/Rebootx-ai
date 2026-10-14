@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
 
 Reference = Annotated[str, StringConstraints(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:/-]+$")]
 
@@ -14,6 +14,7 @@ class StrictModel(BaseModel):
 class ErrorDetails(StrictModel):
     category: Annotated[str, StringConstraints(min_length=1, max_length=100, pattern=r"^[A-Z0-9_]+$")]
     message: Annotated[str, StringConstraints(min_length=1, max_length=4000)]
+    http_status: int | None = Field(default=None, ge=100, le=599, strict=True)
 
 
 class FailureEvent(StrictModel):
