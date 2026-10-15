@@ -34,6 +34,17 @@ October 14 output-contract correction: added sanitized validation/envelope failu
 
 Checkpoint 3 defaults to mock mode; explicit `AI_PROVIDER=gemma` enables advisory diagnosis only. Real adapters, approval execution, operation reconciliation, evidence-backed external verification, and operator repair remain future work. Revalidate unknown completion and actual worker interruption with sandbox evidence before any external effects. Assess durable hosting/cost explicitly before claiming production resilience. The wider end-to-end schedule below describes future gates, not completed Checkpoint 3 capabilities.
 
+## Checkpoint 4 implementation status (October 15)
+
+- [x] Create exportable n8n primary workflow (`integrations/n8n/workflows/primary_order_notification.json`) with manual trigger and simulated failure injection (`/mock/primary-provider-failure`).
+- [x] Create exportable n8n error workflow (`integrations/n8n/workflows/rebootx_error_handler.json`) using n8n Error Trigger node.
+- [x] Implement robust JavaScript mapping and signing logic (`integrations/n8n/code_nodes/format_and_sign_failure.js`) with native Node `crypto` support and pure JS FIPS 180-4 HMAC-SHA256 sandbox fallback.
+- [x] Generate stable event identifiers (`n8n:<execution_id>:<failed_step>`) ensuring deterministic deduplication across repeated deliveries.
+- [x] Map n8n error context to strict `FailureEvent` schema, sanitizing references and preserving error categorization and HTTP status codes.
+- [x] Verify exact-byte HMAC authentication and timestamp tolerance without weakening existing backend security.
+- [x] Add automated test suite (`backend/tests/test_n8n_integration.py`): 13 tests covering workflow JSON validity, HMAC parity with Python, schema compliance, deduplication, timestamp validation, missing metadata resilience, tenant isolation, outbox claiming, Temporal recovery state machine, and escalation.
+- [x] Document Docker-free Windows setup using native `npx.cmd n8n` and Temporal CLI in `integrations/n8n/README.md`.
+
 ## Strategy
 Ship a narrow, end-to-end, **real external n8n failure → authenticated event → Temporal recovery → verified provider acceptance → auditable dashboard** path before adding polish. Treat partner integrations as meaningful enhancements, not blockers to the core flow.
 

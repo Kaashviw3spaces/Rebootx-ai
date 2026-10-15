@@ -1,8 +1,8 @@
 # REBOOTX — Technical Architecture
 
-**Version:** 0.1 | **Date:** 2026-10-13
+**Version:** 0.2 | **Date:** 2026-10-15
 
-**Implemented through Checkpoint 2:** FastAPI HMAC ingestion, Neon persistence, transactional outbox, Temporal `IncidentRecoveryWorkflow`, deterministic mock diagnosis/actions, and tenant-authorized recovery reads. Gemma, real notification adapters, policies/approvals, and the dashboard below describe the target architecture and are not implemented yet.
+**Implemented through Checkpoint 4:** FastAPI HMAC ingestion, Neon persistence, transactional outbox, Temporal `IncidentRecoveryWorkflow`, Gemma 4 advisory diagnosis, n8n Error Trigger integration, exact-byte HMAC formatting node, and end-to-end failure ingestion. Real external recovery actions and frontend dashboard remain future work.
 
 ## 1. Architecture at a glance
 
@@ -215,3 +215,30 @@ Model confidence is advisory. Deterministic policy independently rejects unsafe 
 Scope is checked before and after the provider call. No database transaction spans inference. Committed result audits deduplicate activity redelivery; a pre-commit crash or parallel delivery can repeat inference, but locks/unique constraints prevent duplicate persisted diagnoses and recovery effects. AI request timeout is configurable up to 60 seconds within the new 75-second diagnosis activity budget and capped by actual activity headroom for legacy histories. SDK retries are disabled and Temporal delivery retries remain bounded. Continuing database outages, revoked scope, workflow timeouts, and operator reconciliation remain existing limitations.
 
 Tests distinguish mocked model transport, real native Temporal orchestration (including lost diagnosis acknowledgement, replay and worker restart), actual inference, and live PostgreSQL. Only the first two are verified in Checkpoint 3. No external recovery actions are enabled. See backend README and implementation report for exact settings/results and provider limitations.
+ 
++## 13. Checkpoint 4 n8n Integration & Failure Ingestion
++
++Checkpoint 4 connects customer n8n workflow failures to the REBOOTX ingestion API and Temporal recovery orchestrator without weakening the zero-trust exact-byte HMAC authentication contract.
++
++```text
++Customer n8n Instance
++  ├─ Primary Order Workflow -> calls external API -> receives HTTP 503 / timeout
++  │    └─ Workflow Setting: errorWorkflow -> 'REBOOTX Error Handler'
++  │
++  └─ REBOOTX Error Handler Workflow
++       ├─ Error Trigger: intercepts execution failure metadata
++       ├─ Format & Sign Code Node:
++       │    ├─ maps to strict FailureEvent schema
++       │    ├─ derives stable event_id = 'n8n:<exec_id>:<step>' (deterministic deduplication)
++       │    ├─ normalizes error category and HTTP status
++       │    ├─ checks native Node.js 'crypto' module
++       │    ├─ falls back to pure JS FIPS 180-4 HMAC-SHA256 if sandbox restricts built-ins
++       │    └─ outputs raw JSON string + X-Webhook-Signature
++       └─ HTTP Request Node: POST /api/v1/events/failure
++```
++
++### Key Invariants
++- **Deduplication:** Event identifiers are deterministic (`n8n:<exec_id>:<failed_step>`). Retrying the same failed execution yields the identical `event_id`, triggering REBOOTX database constraints and returning `duplicate: true` without creating redundant incidents or Temporal outbox rows.
++- **Environment Independence:** The formatter script operates seamlessly both when Node.js `crypto` is accessible and within restricted n8n Code node sandboxes where `NODE_FUNCTION_ALLOW_BUILTIN` is unset.
++- **Mock Scope:** External recovery actions remain mock-only (`mock-only-v1`); no live notification providers or external APIs are invoked.
++

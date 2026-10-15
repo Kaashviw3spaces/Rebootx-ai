@@ -1,0 +1,131 @@
+{
+  "name": "Primary Order Notification Dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "order-notification",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "c01a2222-0000-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        140
+      ],
+      "webhookId": "order-notification"
+    },
+    {
+      "parameters": {},
+      "id": "c01a2222-0001-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "order_id",
+              "value": "={{ $json.body?.order_id || 'ORD-1042' }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "customer_email",
+              "value": "={{ $json.body?.customer_email || 'buyer@example.com' }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "operation_id",
+              "value": "={{ $json.body?.operation_id || 'notify-order-1042' }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "amount",
+              "value": "={{ $json.body?.amount || 99.50 }}",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "c01a2222-0002-4000-8000-000000000002",
+      "name": "Create Synthetic Order",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/mock/primary-provider-failure",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ order_id: $json.order_id, email: $json.customer_email }) }}",
+        "options": {}
+      },
+      "id": "c01a2222-0003-4000-8000-000000000003",
+      "name": "Send Customer Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create Synthetic Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create Synthetic Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Synthetic Order": {
+      "main": [
+        [
+          {
+            "node": "Send Customer Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "wmtArUNSGBtEuCUM"
+  },
+  "tags": []
+}

@@ -25,6 +25,12 @@ def health():
     return {"status": "ok"}
 
 
+@router.post("/mock/primary-provider-failure", status_code=503)
+def mock_primary_provider_failure():
+    # Demo endpoint for n8n workflows to simulate a downstream provider outage.
+    raise HTTPException(503, "Primary notification provider unavailable (simulated outage)")
+
+
 @router.post("/api/v1/events/failure", status_code=202, response_model=IngestionResponse)
 async def failure(request: Request, db=Depends(get_db)):
     raw = bytearray()

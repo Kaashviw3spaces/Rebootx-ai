@@ -1,3 +1,47 @@
+# Checkpoint 4 implementation report: n8n integration & end-to-end failure ingestion
+
+## n8n integration validation — October 15, 2026
+
+Delivered end-to-end integration between external n8n automation failures and the REBOOTX ingestion/recovery engine without weakening HMAC authentication or altering completed checkpoints.
+
+### Delivered Components
+- `integrations/n8n/workflows/primary_order_notification.json`: Exportable primary order notification workflow featuring Manual Trigger, Order Data Generator (`ORD-1042`, `notify-order-1042`), and an HTTP Request node targeting `/mock/primary-provider-failure` (simulating a provider 503 outage), with `settings.errorWorkflow` set to the REBOOTX error handler.
+- `integrations/n8n/workflows/rebootx_error_handler.json`: Exportable error-handling workflow featuring an `Error Trigger` node, a `Code` node embedding the JavaScript formatting and signing logic, and an `HTTP Request` node POSTing exact raw JSON to `/api/v1/events/failure` with `X-Integration-ID` and `X-Webhook-Signature`.
+- `integrations/n8n/code_nodes/format_and_sign_failure.js`: Standalone, zero-dependency JavaScript module. Uses native Node.js `crypto` if present, with seamless fallback to an embedded FIPS 180-4 pure JS HMAC-SHA256 implementation if the n8n execution environment blocks `require('crypto')` (`NODE_FUNCTION_ALLOW_BUILTIN` unset). Maps n8n error context to strict `FailureEvent` schema, sanitizes identifiers, and generates stable `event_id = "n8n:<execution_id>:<failed_step>"` ensuring deterministic deduplication across retries.
+- `integrations/n8n/README.md`: Operator guide for native Windows setup (`npx.cmd n8n`, no Docker/WSL), workflow importing, environment variable configuration, and failure testing.
+- `backend/scripts/simulate_n8n_failure.py`: CLI testing script executing the actual JavaScript formatter via Node.js and posting to the live API.
+- `backend/tests/test_n8n_integration.py`: 13 comprehensive automated tests covering workflow JSON structure, HMAC parity against Python hashlib, Pydantic schema validation, stable deduplication, timestamp skew limits, missing metadata safety, tenant isolation, outbox claiming, Temporal activity state transitions (`RECEIVED` -> `RECOVERED`), and escalation (`NEEDS_ATTENTION`).
+
+### Test Results
+- **SQLite Regression Suite:** **170 passed, 5 skipped** in **10.99s** (baseline 157 passed -> 170 passed with 13 new Checkpoint 4 integration tests).
+- **Native Temporal Integration:** **5 passed** in **68.70s** against Windows development server (`temporal.exe`).
+- **Python Syntax:** `compileall` passed cleanly across `app/`, `scripts/`, `tests/`, and `integrations/`.
+- **Git Diff:** `git diff --check` passed cleanly.
+
+### Docker-Free Live n8n Demonstration Evidence
+On October 15, 2026, a genuine live Docker-free end-to-end integration test was executed on native Windows using installed n8n `v2.43.6`, Uvicorn FastAPI, Temporal development server `v1.2.0`, REBOOTX recovery worker, and transactional outbox dispatcher.
+
+1. **Primary Workflow Invocation:**
+   - Webhook trigger endpoint `http://127.0.0.1:5678/webhook/order-notification` received an external POST request.
+   - n8n Execution ID: `6` (Workflow `Primary Order Notification Dispatcher`, ID `fLkVQRkWnBPWIBG1`).
+   - Downstream node `Call Primary Provider` attempted `POST http://127.0.0.1:8000/mock/primary-provider-failure` and failed with HTTP `503 Service Unavailable`.
+2. **Error Trigger Activation:**
+   - n8n caught the failure and activated `REBOOTX Error Handler` (Workflow ID `jfUNuHPdxg4WXlg9`) via its `Error Trigger` node.
+   - The Code node ran `integrations/n8n/code_nodes/format_and_sign_failure.js` within n8n's sandbox, successfully mapping context and computing the HMAC-SHA256 signature using the embedded pure JS engine.
+   - HTTP Request node POSTed exact signed JSON to `http://127.0.0.1:8000/api/v1/events/failure`.
+3. **REBOOTX Ingestion & Deduplication:**
+   - API responded with HTTP `202 Accepted` (`{"incident_id": "de18a744-3c93-4903-871c-6b3c115e18e2", "status": "RECEIVED", "duplicate": false}`).
+   - Stable event ID: `n8n:6:Call Primary Provider`.
+   - Tenant ID: `439d5f1b-d6a6-4abd-8511-f260edd53496`, Integration ID: `da9c3e2f-b9f4-416a-afdf-578b4e406901`.
+   - Repeated delivery of the exact payload returned HTTP `202 Accepted` (`duplicate: true`, status `RECOVERED`). Database count invariants preserved: exactly 1 incident, 1 outbox record, 1 diagnosis record, 2 recovery attempt records.
+4. **Temporal Recovery Orchestration:**
+   - Outbox dispatcher claimed event and started Temporal workflow ID: `rebootx:recovery:v1:439d5f1b-d6a6-4abd-8511-f260edd53496:de18a744-3c93-4903-871c-6b3c115e18e2`.
+   - State machine progressed: `RECEIVED` -> `VALIDATING` -> `DIAGNOSING` -> `PLANNED` -> `EXECUTING` (mock retry failed, fallback succeeded) -> `VERIFYING` -> `RECOVERED`.
+   - Verification status: `MOCK_VERIFIED`.
+   - Diagnosis provenance: `mock` (`mock-diagnosis-v1`, requested `gemma-4-26b-a4b-it`, policy reason `AI_POLICY_ACCEPTED`).
+
+No database migrations were modified (database remains at revision `0003`). No live Neon operations or unauthorized Gemma calls occurred. External recovery actions remain strictly `mock-only-v1`. All background processes were cleanly terminated.
+
 # Checkpoint 3 implementation report
 
 ## Neon PostgreSQL validation — October 14, 2026
