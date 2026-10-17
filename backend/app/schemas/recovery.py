@@ -34,6 +34,9 @@ class RecoveryResponse(BaseModel):
     dispatch_attempts: int
     dispatch_error: str | None
     diagnosis: DiagnosisResponse | None = None
+    provider: str = 'n8n'
+    external_execution_id: str | None = None
+    evidence: dict | None = None
 
 
 class AttemptResponse(BaseModel):
@@ -46,6 +49,7 @@ class AttemptResponse(BaseModel):
     external_reference: str | None
     started_at: datetime
     ended_at: datetime | None
+    evidence: dict | None = None
 
 
 class TimelineResponse(BaseModel):

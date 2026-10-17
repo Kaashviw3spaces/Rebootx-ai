@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--tenant-name', required=True)
     parser.add_argument('--workflow-external-id', required=True)
     parser.add_argument('--secret-env', required=True, help='Dedicated environment variable for this integration secret')
+    parser.add_argument('--workflow-kind', choices=['notification_v1', 'side_effect_safe_demo_v1'], default='notification_v1')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,199}', args.secret_env):
         parser.error('Use an uppercase environment variable name')
@@ -37,7 +38,7 @@ def main():
             integration = Integration(tenant_id=tenant.id, secret_ref=args.secret_env, kind='n8n')
             db.add(integration)
             db.flush()
-            workflow = Workflow(tenant_id=tenant.id, integration_id=integration.id, external_id=args.workflow_external_id)
+            workflow = Workflow(tenant_id=tenant.id, integration_id=integration.id, external_id=args.workflow_external_id, kind=args.workflow_kind)
             db.add(workflow)
             db.commit()
             print(f'Tenant ID: {tenant.id}')

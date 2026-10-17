@@ -1,7 +1,19 @@
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from uuid import UUID
+
+
+class N8nAuthorization(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    tenant_id: UUID
+    integration_id: UUID
+    workflow_external_id: str
+    operation: str = 'retry_execution'
+    idempotent: bool = False
+    side_effect_safe: bool = False
+    workflow_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
 
 
 class Settings(BaseSettings):
@@ -11,6 +23,14 @@ class Settings(BaseSettings):
         "postgresql+psycopg://rebootx:local-dev-only@localhost:5432/rebootx"
     )
     app_env: str = "development"
+    recovery_mode: Literal['mock-only', 'real_n8n'] = 'mock-only'
+    n8n_base_url: str = 'http://127.0.0.1:5678'
+    n8n_api_key: SecretStr = SecretStr('')
+    n8n_supported_version: str = ''
+    n8n_authorizations: list[N8nAuthorization] = Field(default_factory=list)
+    n8n_connect_timeout: float = Field(default=2, ge=0.1, le=5)
+    n8n_read_timeout: float = Field(default=5, ge=0.1, le=10)
+    n8n_verification_seconds: float = Field(default=15, ge=0, le=20)
     webhook_timestamp_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
     max_webhook_body_bytes: int = Field(default=65536, ge=1024, le=1048576)
     temporal_address: str = '127.0.0.1:7233'

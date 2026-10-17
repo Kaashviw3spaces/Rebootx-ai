@@ -43,6 +43,9 @@ class IncidentResponse(BaseModel):
     status: str
     event_timestamp: datetime
     created_at: datetime
+    recovery_mode: str = 'mock-only'
+    verification_outcome: str | None = None
+    recovery_reason: str | None = None
 
 
 class IngestionResponse(BaseModel):

@@ -225,3 +225,33 @@ backend/migration-preview.sql
 .env.*
 !.env.example
 backend/.temporal/
+# ==========================================
+# REBOOTX - Frontend (React / Vite)
+# ==========================================
+node_modules/
+*.tsbuildinfo
+.vite/
+
+# ==========================================
+# REBOOTX - Test artifacts
+# ==========================================
+.pytest_tmp/
+
+# ==========================================
+# REBOOTX - Local databases
+# ==========================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# REBOOTX - Local secrets and credentials
+# ==========================================
+*.dpapi
+*.pem
+*.key
+
+# ==========================================
+# REBOOTX - Runtime state
+# ==========================================
+*.pid

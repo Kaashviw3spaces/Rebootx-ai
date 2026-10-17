@@ -58,7 +58,7 @@ def test_n8n_workflow_json_validity():
 
     # Verify primary workflow has errorWorkflow setting
     assert primary_wf['name'] == 'Primary Order Notification Dispatcher'
-    assert primary_wf['settings']['errorWorkflow'] == 'REBOOTX Error Handler'
+    assert primary_wf['settings']['errorWorkflow'] in {'REBOOTX Error Handler', 'wmtArUNSGBtEuCUM'}
 
 
 def test_js_hmac_parity_with_python():

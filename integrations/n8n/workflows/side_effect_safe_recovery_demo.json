@@ -1,0 +1,59 @@
+{
+  "name": "REBOOTX Side Effect Safe Recovery Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rebootx-safe-demo",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "cp6-trigger",
+      "name": "Demo Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "rebootx-safe-demo"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://127.0.0.1:8011/probe/' + $json.body.run_id }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "cp6-probe",
+      "name": "Controlled Local Probe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ],
+      "retryOnFail": false
+    }
+  ],
+  "connections": {
+    "Demo Webhook": {
+      "main": [
+        [
+          {
+            "node": "Controlled Local Probe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": []
+}

@@ -1,3 +1,35 @@
+# Checkpoint 5 implementation report: Premium Frontend Dashboard
+
+## Dashboard & API Validation — October 15, 2026
+
+Delivered a dark-mode SaaS dashboard matching the reference layout, density, and color system, connecting the React/TypeScript frontend to the FastAPI backend with in-memory tenant authentication.
+
+### Delivered Components
+- **Backend API Extensions:**
+  - `GET /api/v1/system/status`: Authenticated tenant profile, active AI model, recovery mode, and Temporal queue.
+  - `GET /api/v1/dashboard/summary`: Aggregate metrics calculating total incidents, recovered incidents, needs attention, and explicitly labeled `"Simulated Recovery Rate"`.
+  - `GET /api/v1/dashboard/trends`: Time-series incident ingestion vs simulated recovery datapoints for Recharts area charts.
+  - `GET /api/v1/incidents`: Paginated, filterable, and searchable incident catalog.
+  - `GET /api/v1/workflows`: Tenant-scoped registered workflows, incident counts, and latest failure status.
+  - `GET /api/v1/integrations`: Connected automation platforms without leaking credentials.
+  - `GET /api/v1/approvals`: Read-only human-in-the-loop authorization queue.
+  - Environment guard on `/mock/primary-provider-failure` restricting it to `development`, `demo`, or `test`.
+  - Configured `CORSMiddleware` in `backend/app/main.py`.
+- **Frontend Workspace (`frontend/`):**
+  - Initialized with React 18, TypeScript, Vite 6, Tailwind CSS, React Router v6, TanStack Query v5, Lucide React, and Recharts.
+  - Custom dark SaaS theme: Obsidian background (`#09090D`), deep sidebar (`#0B0B0F`), card surfaces (`#111116`), thin borders (`#27272F`), primary violet (`#8B5CF6`), and pink glow highlights (`#E040C9`).
+  - **In-Memory Token Security:** Tenant read token is managed strictly in memory via `AuthContext`, never stored in `localStorage`, `sessionStorage`, cookies, or `VITE_*` variables.
+  - **Full Page Suite:** `OverviewPage` (matching reference screenshot with 4 stat cards, trends chart, activity feed, recent incidents, system overview), `IncidentsPage`, `IncidentDetailPage` (signature deep-dive with AI diagnosis, provenance, confidence meter, vertical audit timeline, attempts table), `WorkflowsPage`, `RecoveryActivityPage`, `AiInsightsPage`, `IntegrationsPage`, `ApprovalsPage`, `SettingsPage`, and `LoginPage`.
+  - Background polling: 7s for dashboard/incidents, 5s for active incident recovery.
+- **Automated Tests:**
+  - `backend/tests/test_dashboard_api.py`: 7 automated backend tests covering auth, summary, trends, pagination, search, isolation, and environment guards.
+  - `frontend/src/api/client.test.ts`: 4 vitest tests covering auth headers, query parameter building, 401 handling, and API failure propagation.
+
+### Test Results
+- **SQLite Regression Suite:** **177 passed, 5 skipped** in **11.98s** (baseline 170 passed -> 177 passed).
+- **Frontend Production Build:** `tsc -b && vite build` built cleanly in 4.47s with optimized chunk splitting.
+- **Frontend Tests:** **4 passed** in Vitest.
+
 # Checkpoint 4 implementation report: n8n integration & end-to-end failure ingestion
 
 ## n8n integration validation — October 15, 2026
@@ -261,3 +293,10 @@ Remote servers require TLS; API-key authentication is supported and stored as Se
 This validates worker-restart recovery on a running native development server with both SQLite and isolated live Neon application persistence, not server-restart durability, remote hosting, production resilience, or external adapter safety. Remote TLS/API-key connectivity has no configured endpoint to validate. A continuing database outage, revoked registration, or workflow deadline can leave a failed/timed-out execution or stale state for operator reconciliation; automated repair/backfill/admin retry is deferred. Temporal history retention also limits server-side duplicate rejection, while persisted logical keys continue preventing repeated mock effects.
 
 No Gemma, real notification provider, dashboard, approval execution, or n8n template is implemented. Next: explicit policies/approvals, a registered sandbox adapter, operation reconciliation/idempotency, and evidence-backed verification; only then place schema-validated Gemma proposals behind the policy gate. Revalidate unknown completion and actual worker interruption with sandbox evidence. Choose durable hosting and verify cost separately.
+
+
+## Checkpoint 6 implementation (October 17, 2026)
+
+**PARTIALLY COMPLETE.** The real n8n public API adapter, deterministic demo-only authorization gate, durable action reservation, independent execution verification, additive migration `0004` and dashboard evidence are implemented. Existing mock mode remains the default and is pinned per incident. No live n8n recovery has been verified: the user confirmed no public API key is configured. No existing database migration, `.env` edit, commit or push was performed.
+
+The detailed audit, exact CP6 source-file inventory, architecture, safety guarantees, test results, blockers and approval recommendation are in [CHECKPOINT6_REPORT.md](../docs/CHECKPOINT6_REPORT.md). Native Windows setup, operation/version compatibility, credentials, snapshot review, controlled demo and troubleshooting are in [CHECKPOINT6_DEMO.md](../docs/CHECKPOINT6_DEMO.md). Earlier checkpoint reports are historical and do not imply that real recovery passed.

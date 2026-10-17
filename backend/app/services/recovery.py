@@ -64,6 +64,8 @@ def apply_step(db, request: StepRequest, diagnosis_outcome=None, ai_settings=Non
     incident = scoped_incident(db, request)
     tenant_id, incident_id = incident.tenant_id, incident.id
     operation = request.operation
+    if incident.recovery_mode != 'mock-only' and operation in {'retry', 'fallback', 'verify', 'recover', 'escalate'}:
+        raise RecoveryDenied('REAL_ADAPTER_REQUIRED')
     key = 'recovery:v1:' + operation
     prior = db.scalar(select(AuditLog).where(
         AuditLog.tenant_id == tenant_id, AuditLog.incident_id == incident_id, AuditLog.logical_key == key))
@@ -153,8 +155,8 @@ def apply_step(db, request: StepRequest, diagnosis_outcome=None, ai_settings=Non
             started_at=now, ended_at=now,
         ))
     incident.status = target
-    result = StepResult(target, category, success, reason, delay)
-    details = {'mode': 'mock-only', 'result': asdict(result)}
+    result = StepResult(target, category, success, reason, delay, incident.recovery_mode)
+    details = {'mode': incident.recovery_mode, 'result': asdict(result)}
     if operation == 'diagnose' and diagnosis_record is not None:
         details['diagnosis'] = {'status': diagnosis_record.status, 'model_id': diagnosis_record.model_id,
                                 'source': diagnosis_record.source,
@@ -164,7 +166,7 @@ def apply_step(db, request: StepRequest, diagnosis_outcome=None, ai_settings=Non
             details['diagnosis']['validation_codes'] = list(diagnosis_outcome.validation_codes)
             details['diagnosis']['validation_fields'] = list(diagnosis_outcome.validation_fields)
     db.add(AuditLog(
-        tenant_id=tenant_id, incident_id=incident_id, actor='temporal:mock-recovery-v1',
+        tenant_id=tenant_id, incident_id=incident_id, actor='temporal:' + incident.recovery_mode + ':recovery-v1',
         logical_key=key, event_type='RECOVERY_' + operation.upper(),
         redacted_details=details,
     ))

@@ -1,8 +1,8 @@
 # REBOOTX — Technical Architecture
 
-**Version:** 0.2 | **Date:** 2026-10-15
+**Version:** 0.3 | **Date:** 2026-10-15
 
-**Implemented through Checkpoint 4:** FastAPI HMAC ingestion, Neon persistence, transactional outbox, Temporal `IncidentRecoveryWorkflow`, Gemma 4 advisory diagnosis, n8n Error Trigger integration, exact-byte HMAC formatting node, and end-to-end failure ingestion. Real external recovery actions and frontend dashboard remain future work.
+**Implemented through Checkpoint 5:** FastAPI HMAC ingestion, Neon persistence, transactional outbox, Temporal `IncidentRecoveryWorkflow`, Gemma 4 advisory diagnosis, n8n Error Trigger integration, exact-byte HMAC formatting node, end-to-end failure ingestion, and premium React/TypeScript SaaS operator dashboard with live TanStack Query polling. Real external recovery actions remain mock-only.
 
 ## 1. Architecture at a glance
 
@@ -242,3 +242,18 @@ Tests distinguish mocked model transport, real native Temporal orchestration (in
 +- **Environment Independence:** The formatter script operates seamlessly both when Node.js `crypto` is accessible and within restricted n8n Code node sandboxes where `NODE_FUNCTION_ALLOW_BUILTIN` is unset.
 +- **Mock Scope:** External recovery actions remain mock-only (`mock-only-v1`); no live notification providers or external APIs are invoked.
 +
+
+
+## Checkpoint 6 implemented adapter boundary (October 17, 2026)
+
+Current code retains FastAPI/HMAC ingestion -> tenant-scoped incident + transactional outbox -> existing Temporal workflow ID -> activity worker. Incident ingestion pins `recovery_mode`; historical rows default to `mock-only`. Diagnosis remains advisory. The existing deterministic diagnosis policy is followed by a separate, stricter real-action authorization gate.
+
+`app/integrations/n8n/client.py` uses the n8n 2.43.6 documented public API with server-only API-key authentication, explicit timeouts, strict identity/status parsing, fixed error codes and no automatic HTTP retries. The only action is failed-execution retry with `loadWorkflow=false`. `app/services/real_n8n.py` requires exact tenant/integration/workflow binding, demo-only workflow kind, safe/idempotent declarations, supported operation/version, acceptable structured failure evidence and a full saved-workflow fingerprint. AI text/commands never become API requests.
+
+An external action key uniquely binds tenant + integration + original execution across incidents/failed steps. A RecoveryAttempt reservation commits before network access. Activity redelivery returns an existing audit result or escalates an uncertain reservation. This intentionally trades availability for duplicate prevention; it is not exactly-once execution. No transaction is held across HTTP. A retry of a retry is prohibited.
+
+A separate verification activity polls the resulting execution, checks workflow identity and `retryOf`, and persists evidence. Only independently read terminal `success` permits `REAL_RECOVERY_VERIFIED`, then `RECOVERED`. Terminal failures and uncertainty escalate distinctly. Attempt evidence stores scoped identifiers, operation, method, external status and timestamps; it excludes payloads and credentials. Versioned Temporal patches preserve historical command compatibility and provide bounded real-action budgets. Mock retry/fallback/verification remains available only for pinned mock incidents.
+
+Alembic `0004` is additive: incident mode plus nullable attempt evidence/action key and a unique index. No live migration was applied. Dashboard mode, execution IDs, evidence, failure reasons and simulated/verified/failed/unverified labels are read-only tenant-scoped additions. Summary metrics expose real/simulated counts separately.
+
+The live n8n gate is OPEN: no public API key was configured. Native Temporal with mocked HTTP is not live n8n evidence. Details: [report](CHECKPOINT6_REPORT.md), [Windows demonstration and limitations](CHECKPOINT6_DEMO.md).

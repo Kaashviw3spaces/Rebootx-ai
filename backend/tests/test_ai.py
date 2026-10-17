@@ -281,7 +281,7 @@ def test_0003_upgrade_preserves_0002_data_and_has_no_drift(context):
         command.downgrade(config, '0002')
         counts = {name: connection.scalar(text(f'SELECT count(*) FROM {name}')) for name in tables}
         command.upgrade(config, 'head')
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0003'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0004'
         assert counts == {name: connection.scalar(text(f'SELECT count(*) FROM {name}')) for name in tables}
         assert connection.scalar(text('SELECT count(*) FROM incident_diagnoses')) == 0
         command.check(config)

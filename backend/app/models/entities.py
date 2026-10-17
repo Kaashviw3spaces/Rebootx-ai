@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, JSON, String, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, JSON, String, UniqueConstraint, Uuid, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -71,6 +71,7 @@ class Incident(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recovery_reason: Mapped[str | None] = mapped_column(String(100))
     verification_outcome: Mapped[str | None] = mapped_column(String(30))
+    recovery_mode: Mapped[str] = mapped_column(String(30), default='mock-only', server_default='mock-only')
 
 
 class RecoveryAttempt(Base):
@@ -78,6 +79,7 @@ class RecoveryAttempt(Base):
     __table_args__ = (
         ForeignKeyConstraint(["tenant_id", "incident_id"], ["incidents.tenant_id", "incidents.id"]),
         UniqueConstraint('tenant_id', 'incident_id', 'logical_key', name='uq_recovery_attempt_logical'),
+        Index('uq_external_action_key', 'external_action_key', unique=True),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -90,6 +92,8 @@ class RecoveryAttempt(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     logical_key: Mapped[str | None] = mapped_column(String(100))
     failure_reason: Mapped[str | None] = mapped_column(String(100))
+    external_action_key: Mapped[str | None] = mapped_column(String(64))
+    evidence: Mapped[dict | None] = mapped_column(JSON)
 
 
 class AuditLog(Base):

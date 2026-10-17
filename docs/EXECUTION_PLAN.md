@@ -79,13 +79,13 @@ Ship a narrow, end-to-end, **real external n8n failure → authenticated event �
 **Gate:** AI changes recommendation order but cannot expand permissions or trigger unsafe actions.
 
 ## Oct 16 — Dashboard and partner features
-- [ ] Build incident list, detail timeline, recovery status, tenant switch/login, approval UI.
+- [x] Build incident list, detail timeline, recovery status, tenant switch/login, approval UI.
+- [x] Add aggregate metrics, trends chart, and evidence view.
 - [ ] Add SerpApi optional documentation research with source links and freshness labels.
 - [ ] Add ElevenLabs optional incident voice briefing, with PII redaction and opt-in.
-- [ ] Add aggregate metrics and evidence view.
 - [ ] Deploy Render web/API; establish a reachable Temporal worker/server path or clearly document local demo requirement.
 
-**Gate:** judges can inspect a real incident from start to finish.
+**Gate:** judges can inspect a real incident from start to finish via live dashboard.
 
 ## Oct 17 — Reliability and demonstration
 - [ ] Execute full scenario matrix (see DEMO_PLAN.md).
@@ -134,3 +134,20 @@ One person can cover all roles sequentially; avoid parallel integration work wit
 
 ## Definition of done
 An independent reviewer can clone the repo, follow documented setup, import the n8n template, trigger a real failure, observe a Temporal recovery, inspect the audit timeline, and reproduce an escalation and a dedup case. The README distinguishes real integrations, mocks, and planned capabilities.
+
+
+## Checkpoint 6 status (October 17, 2026): PARTIALLY COMPLETE
+
+- [x] Audit existing checkpoints and preserve uncommitted CP5 work.
+- [x] Establish retry/inspection support from installed n8n 2.43.6 public API specification and handler.
+- [x] Implement opt-in demo-only authorization, workflow snapshot pinning and durable action reservations.
+- [x] Integrate action/independent verification into existing Temporal activities; preserve outbox and workflow IDs.
+- [x] Add additive migration and compatible dashboard provenance/evidence fields.
+- [x] Add deterministic HTTP safety/failure tests and native Temporal lost-acknowledgement/replay coverage.
+- [x] Provide a controlled local provider, importable safe workflow and Windows reproduction guide.
+- [ ] Configure a dedicated n8n public API key (user confirmed none is configured).
+- [ ] Obtain operator approval for any existing-database migration/provisioning before a live demonstration.
+- [ ] Run actual n8n failure -> signed event -> Temporal retry -> independent n8n success verification -> dashboard evidence capture.
+- [ ] Approve Checkpoint 6 only after the live gate succeeds. Do not substitute simulated evidence.
+
+See [CHECKPOINT6_REPORT.md](CHECKPOINT6_REPORT.md) for exact results and [CHECKPOINT6_DEMO.md](CHECKPOINT6_DEMO.md) for configuration and commands.

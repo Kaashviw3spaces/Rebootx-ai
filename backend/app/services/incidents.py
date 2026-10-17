@@ -17,7 +17,7 @@ def find_duplicate(db, tenant_id, event):
     ).order_by(Incident.created_at, Incident.id))
 
 
-def receive_failure(db, integration, event):
+def receive_failure(db, integration, event, recovery_mode='mock-only'):
     workflow = db.scalar(select(Workflow).where(
         Workflow.tenant_id == integration.tenant_id,
         Workflow.integration_id == integration.id,
@@ -37,7 +37,7 @@ def receive_failure(db, integration, event):
         source_execution_id=event.source_execution_id, failed_step=event.failed_step,
         operation_id=event.operation_id, failure_type=event.error.category,
         error_details={"category": event.error.category, "message": "[REDACTED]"},
-        event_timestamp=event.timestamp, status="RECEIVED",
+        event_timestamp=event.timestamp, status="RECEIVED", recovery_mode=recovery_mode,
     )
     if event.error.http_status is not None:
         incident.error_details['http_status'] = event.error.http_status

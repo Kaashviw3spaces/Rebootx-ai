@@ -26,6 +26,7 @@ class StepResult:
     success: bool = False
     reason: str = ''
     delay_seconds: int = 0
+    mode: str = 'mock-only'
 
 
 def recovery_workflow_id(tenant_id, incident_id) -> str:
