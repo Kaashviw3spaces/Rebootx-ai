@@ -30,14 +30,21 @@ async def run_worker():
         engine.dispose()
 
 
+def _sanitize_message(msg: str) -> str:
+    """Redact passwords or sensitive tokens from error strings."""
+    import re
+    return re.sub(r':([^@\s/]+)@', ':***@', str(msg))
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     try:
         asyncio.run(run_worker())
     except KeyboardInterrupt:
         pass
-    except Exception:
+    except Exception as exc:
         log_event('worker_stopped', error_code='WORKER_STARTUP_FAILURE')
+        logging.error('Temporal worker startup failed (%s): %s', type(exc).__name__, _sanitize_message(str(exc)))
         raise SystemExit(1) from None
 
 

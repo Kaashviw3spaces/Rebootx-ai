@@ -1,0 +1,207 @@
+services:
+  # ============================================================================
+  # 1. PostgreSQL Database
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: rebootx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rebootx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-rebootx}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-rebootx} -d $${POSTGRES_DB:-rebootx}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ============================================================================
+  # 2. Temporal Server (Auto-Setup Orchestration Engine)
+  # ============================================================================
+  temporal:
+    image: temporalio/auto-setup:1.25.0
+    container_name: rebootx-temporal
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-rebootx}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "7233:7233"
+
+  # ============================================================================
+  # 3. Temporal Web UI
+  # ============================================================================
+  temporal-ui:
+    image: temporalio/ui:2.30.0
+    container_name: rebootx-temporal-ui
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${TEMPORAL_UI_PORT:-8233}
+    depends_on:
+      - temporal
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+
+  # ============================================================================
+  # 4. Database Migration Runner (Alembic)
+  # ============================================================================
+  migration:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api
+    container_name: rebootx-migration
+    command: ["alembic", "upgrade", "head"]
+    restart: on-failure
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rebootx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rebootx}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================================================
+  # 5. FastAPI Backend Ingestion & Dashboard API
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api
+    container_name: rebootx-backend
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rebootx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rebootx}
+      APP_ENV: ${APP_ENV:-development}
+      WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: ${WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS:-300}
+      MAX_WEBHOOK_BODY_BYTES: ${MAX_WEBHOOK_BODY_BYTES:-65536}
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-rebootx-recovery-v1}
+      TEMPORAL_TLS_ENABLED: "false"
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-gemma-4-26b-a4b-it}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      RECOVERY_MODE: ${RECOVERY_MODE:-mock-only}
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
+      N8N_API_KEY: ${N8N_API_KEY:-}
+      N8N_AUTHORIZATIONS: ${N8N_AUTHORIZATIONS:-[]}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      migration:
+        condition: service_completed_successfully
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
+  # 6. Temporal Activity Worker
+  # ============================================================================
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: rebootx-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.temporal.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rebootx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rebootx}
+      APP_ENV: ${APP_ENV:-development}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-rebootx-recovery-v1}
+      TEMPORAL_TLS_ENABLED: "false"
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-gemma-4-26b-a4b-it}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      RECOVERY_MODE: ${RECOVERY_MODE:-mock-only}
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
+      N8N_API_KEY: ${N8N_API_KEY:-}
+      N8N_AUTHORIZATIONS: ${N8N_AUTHORIZATIONS:-[]}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      migration:
+        condition: service_completed_successfully
+
+  # ============================================================================
+  # 7. Outbox Dispatcher
+  # ============================================================================
+  dispatcher:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dispatcher
+    container_name: rebootx-dispatcher
+    restart: unless-stopped
+    command: ["python", "-m", "app.temporal.dispatcher"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rebootx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rebootx}
+      APP_ENV: ${APP_ENV:-development}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-rebootx-recovery-v1}
+      TEMPORAL_TLS_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      migration:
+        condition: service_completed_successfully
+
+  # ============================================================================
+  # 8. React SaaS Operator Dashboard (Nginx)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rebootx-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  postgres_data:
+    name: rebootx_postgres_data
+

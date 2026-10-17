@@ -1,4 +1,4 @@
-﻿"""Register one tenant, integration, and workflow; never create tables implicitly."""
+"""Register one tenant, integration, and workflow; never create tables implicitly."""
 import argparse
 import getpass
 import re
@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--workflow-external-id', required=True)
     parser.add_argument('--secret-env', required=True, help='Dedicated environment variable for this integration secret')
     parser.add_argument('--workflow-kind', choices=['notification_v1', 'side_effect_safe_demo_v1'], default='notification_v1')
+    parser.add_argument('--read-token', help='Tenant read token (at least 32 characters; prompted if omitted)')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,199}', args.secret_env):
         parser.error('Use an uppercase environment variable name')
@@ -25,8 +26,9 @@ def main():
     if not 1 <= len(args.tenant_name) <= 200:
         parser.error('Tenant name must contain 1-200 characters')
     load_dotenv()
+    import os
     resolve_secret(args.secret_env)
-    token = getpass.getpass('Tenant read token (random, at least 32 characters): ')
+    token = args.read_token or os.environ.get('TENANT_READ_TOKEN') or getpass.getpass('Tenant read token (random, at least 32 characters): ')
     if not 32 <= len(token) <= 512:
         parser.error('Read token must contain 32-512 characters')
     engine = make_engine(Settings().database_url.get_secret_value())

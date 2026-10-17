@@ -17,8 +17,9 @@ from temporalio.testing import ActivityEnvironment
 from app.core.config import Settings
 from app.models.entities import AuditLog, Incident, RecoveryAttempt, RecoveryOutbox, utcnow
 from app.temporal.activities import RecoveryActivities
-from app.temporal.client import connect_temporal, start_recovery
+from app.temporal.client import connect_temporal, is_local_temporal_address, start_recovery
 from app.temporal.dispatcher import OutboxDispatcher
+from app.temporal.worker import _sanitize_message
 from app.temporal.schemas import RecoveryInput, StepRequest, recovery_workflow_id
 from app.temporal.workflows import IncidentRecoveryWorkflow
 from test_backend import payload, send
@@ -258,6 +259,45 @@ def test_remote_temporal_requires_tls_and_api_key_is_secret():
         with pytest.raises(ValueError, match='TEMPORAL_TLS_REQUIRED'):
             asyncio.run(connect_temporal(settings))
         assert 'synthetic-key' not in repr(settings)
+
+
+def test_temporal_address_locality_matrix():
+    # Loopback addresses
+    assert is_local_temporal_address('127.0.0.1:7233') is True
+    assert is_local_temporal_address('localhost:7233') is True
+    assert is_local_temporal_address('[::1]:7233') is True
+
+    # Docker container and service names (no dots)
+    assert is_local_temporal_address('temporal:7233') is True
+    assert is_local_temporal_address('rebootx-temporal:7233') is True
+    assert is_local_temporal_address('host.docker.internal:7233') is True
+
+    # Private IP addresses
+    assert is_local_temporal_address('10.0.0.1:7233') is True
+    assert is_local_temporal_address('172.18.0.5:7233') is True
+    assert is_local_temporal_address('192.168.1.100:7233') is True
+
+    # Local/internal domain names
+    assert is_local_temporal_address('temporal.local:7233') is True
+    assert is_local_temporal_address('temporal.internal:7233') is True
+    assert is_local_temporal_address('temporal.lan:7233') is True
+
+    # Remote public domains
+    assert is_local_temporal_address('remote.example:7233') is False
+    assert is_local_temporal_address('temporal.cloud:7233') is False
+    assert is_local_temporal_address('api.cloud.temporal.io:7233') is False
+
+    # Connecting to docker container address with API key still requires TLS
+    docker_settings = Settings(temporal_address='temporal:7233', temporal_api_key='some-key')
+    with pytest.raises(ValueError, match='TEMPORAL_TLS_REQUIRED'):
+        asyncio.run(connect_temporal(docker_settings))
+
+
+def test_worker_startup_sanitized_diagnostics():
+    raw_error = "OperationalError: connection to postgresql+psycopg://rebootx:super_secret_pw@postgres:5432/rebootx failed"
+    clean = _sanitize_message(raw_error)
+    assert "super_secret_pw" not in clean
+    assert "rebootx:***@postgres:5432/rebootx" in clean
 
 
 def test_activity_database_failure_suppresses_original_exception(context):

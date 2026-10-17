@@ -112,14 +112,21 @@ async def run_dispatcher():
         engine.dispose()
 
 
+def _sanitize_message(msg: str) -> str:
+    """Redact passwords or sensitive tokens from error strings."""
+    import re
+    return re.sub(r':([^@\s/]+)@', ':***@', str(msg))
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     try:
         asyncio.run(run_dispatcher())
     except KeyboardInterrupt:
         pass
-    except Exception:
+    except Exception as exc:
         log_event('dispatcher_stopped', error_code='DISPATCHER_STARTUP_FAILURE')
+        logging.error('Outbox dispatcher startup failed (%s): %s', type(exc).__name__, _sanitize_message(str(exc)))
         raise SystemExit(1) from None
 
 

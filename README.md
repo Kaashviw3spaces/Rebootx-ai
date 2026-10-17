@@ -18,15 +18,48 @@ REBOOTX detects, diagnoses, orchestrates recovery, and audits failures across co
 > [!NOTE]
 > **Operational Boundary:** Recovery defaults to **mock-only**. Checkpoint 6 adds an opt-in n8n 2.43.6 public-API retry adapter with independent verification and durable duplicate prevention. **Checkpoint 6 is PARTIALLY COMPLETE: live n8n recovery was not run because no public API key is configured.** See [implementation report](docs/CHECKPOINT6_REPORT.md) and [controlled Windows demo](docs/CHECKPOINT6_DEMO.md).
 
-## Quickstart (Windows Development)
+## Self-Hosted Installation (Docker Compose)
+
+For production deployment and end-to-end self-hosting across Linux, macOS, and Windows:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/sakshammalik260-cse/Rebootx-ai.git
+cd Rebootx-ai
+
+# 2. Run automated preflight & environment configuration
+# On Linux / macOS:
+./scripts/setup.sh
+# On Windows (PowerShell):
+.\scripts\setup.ps1
+
+# 3. Start all services in detached mode
+docker compose up -d
+
+# 4. Provision initial tenant and demo workflow
+docker compose run --rm backend python -m scripts.provision \
+  --tenant-name "Primary Demo Tenant" \
+  --workflow-external-id "demo-workflow-1" \
+  --secret-env "N8N_WEBHOOK_SECRET" \
+  --workflow-kind "side_effect_safe_demo_v1"
+```
+
+Access the services:
+- **Operator Dashboard:** [http://localhost:3000](http://localhost:3000) (Log in with `TENANT_READ_TOKEN` from `.env`)
+- **FastAPI REST API / Swagger:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Temporal Web UI:** [http://localhost:8233](http://localhost:8233)
+
+See [INSTALLATION.md](INSTALLATION.md) for detailed platform-specific prerequisites, configuration variables, volume management, and operational runbooks.
+
+## Local Development Setup (Windows)
 
 ### 1. Backend Setup
 ```powershell
 # Navigate to backend
 cd backend
 
-# Run automated test suite (177 SQLite tests)
-.\.venv\Scripts\python.exe -B -m pytest tests/ -q -p no:cacheprovider --basetemp .temporal/pytest_run -m "not temporal"
+# Run automated test suite (224 tests)
+.\.venv\Scripts\python.exe -m pytest tests/ -v -p no:cacheprovider --basetemp .pytest_tmp
 
 # Start FastAPI server
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
@@ -54,6 +87,7 @@ Open `http://localhost:5173` in your browser. Enter your tenant read token to co
 
 ## Documentation Links
 
+- [Self-Hosted Installation Guide](INSTALLATION.md)
 - [Frontend Documentation & Setup](frontend/README.md)
 - [Backend Implementation & Checkpoint Audit](backend/IMPLEMENTATION.md)
 - [Technical Architecture](docs/ARCHITECTURE.md)
